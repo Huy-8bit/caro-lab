@@ -1,0 +1,10 @@
+.git
+.venv
+node_modules
+.next
+.vinext
+.wrangler
+data/*
+checkpoints/*
+*.tsbuildinfo
+npm-debug.log*

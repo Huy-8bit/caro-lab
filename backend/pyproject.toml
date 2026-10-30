@@ -1,0 +1,24 @@
+[project]
+name = "caro-lab-backend"
+version = "0.1.0"
+description = "AlphaZero-inspired chess self-play training service"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi==0.136.3",
+  "uvicorn[standard]==0.41.0",
+  "python-chess==1.999",
+  "torch>=2.6,<3",
+  "numpy>=2.0,<3",
+  "psutil>=6,<8",
+  "PyYAML>=6,<7",
+  "pydantic>=2.10,<3",
+]
+
+[project.optional-dependencies]
+test = ["httpx>=0.28,<1", "pytest>=9,<10", "pytest-asyncio>=1.0,<2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+asyncio_default_fixture_loop_scope = "function"
