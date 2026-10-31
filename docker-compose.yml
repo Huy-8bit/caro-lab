@@ -14,6 +14,8 @@ services:
       - ./data:/data
       - ./checkpoints:/checkpoints
     restart: unless-stopped
+    # Let an in-flight iteration autosave the candidate on shutdown.
+    stop_grace_period: 60s
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -31,3 +33,8 @@ services:
     ports:
       - "3000:3000"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5

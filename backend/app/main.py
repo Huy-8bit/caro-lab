@@ -5,6 +5,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import torch
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -20,6 +21,8 @@ from app.training.engine import TrainingEngine
 DATA_DIR = Path(os.getenv("CARO_DATA_DIR", ROOT / "data"))
 CHECKPOINT_DIR = Path(os.getenv("CARO_CHECKPOINT_DIR", ROOT / "checkpoints"))
 CONFIG_PATH = os.getenv("CARO_CONFIG")
+if os.getenv("CARO_TORCH_THREADS"):
+    torch.set_num_threads(max(1, int(os.environ["CARO_TORCH_THREADS"])))
 repository = Repository(DATA_DIR / "caro.db")
 broker = EventBroker()
 config = TrainingConfig.from_yaml(CONFIG_PATH) if CONFIG_PATH else TrainingConfig()
@@ -55,5 +58,12 @@ app.include_router(websocket_router)
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "version": __version__, "training": engine.status}
+def health() -> dict[str, str | int]:
+    return {
+        "status": "ok",
+        "version": __version__,
+        "training": engine.status,
+        "phase": engine.phase,
+        "champion": engine.model_version,
+        "workers": len(engine._active_workers()),
+    }

@@ -46,3 +46,23 @@ test("dashboard source contains the required authoritative product surfaces", as
   assert.match(page, /stop_after_promotion/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|recharts/);
 });
+
+test("dashboard exposes evaluation progress, quality analytics and labelled charts", async () => {
+  const [page, charts, panels, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/TrainingCharts.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/EvaluationPanels.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /\/ws\/evaluations/);
+  assert.match(page, /\/api\/analytics\/iterations/);
+  assert.match(page, /Training loss is not playing strength/);
+  assert.match(page, /Self-play phase only/);
+  for (const label of ["Policy loss", "Value loss", "Total loss", "Draw", "Repetition", "Checkmate", "Decisive", "Self-play only", "Incl. optimizer"]) {
+    assert.match(charts, new RegExp(`label: "${label}"`));
+  }
+  assert.match(panels, /role="progressbar"/);
+  assert.match(panels, /candidate_label/);
+  assert.match(panels, /Bootstrap · no match played/);
+  assert.match(css, /\.boardSquare \{ aspect-ratio:1\/1; \}/);
+});

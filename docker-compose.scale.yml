@@ -1,8 +1,18 @@
+# One authoritative trainer (backend) + N stateless self-play workers.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --scale selfplay-worker=4
+#
+# Only the backend mounts ./data and ./checkpoints; workers have no volumes,
+# so they can never write the optimizer state, replay buffer, database or
+# checkpoints. Default sizing is for an 8-core host: 6 single-threaded
+# workers + 2 threads for the backend's optimizer.
 services:
   backend:
     environment:
       CARO_CONFIG: /app/configs/scale.yaml
-      CARO_WORKER_TOKEN: local-scale-token
+      CARO_WORKER_TOKEN: ${CARO_WORKER_TOKEN:-local-scale-token}
+      CARO_TORCH_THREADS: 2
 
   selfplay-worker:
     build:
@@ -11,12 +21,23 @@ services:
     command: ["python", "-m", "app.training.worker"]
     environment:
       CARO_COORDINATOR_URL: http://backend:8000
-      CARO_WORKER_TOKEN: local-scale-token
+      CARO_WORKER_TOKEN: ${CARO_WORKER_TOKEN:-local-scale-token}
       CARO_WORKER_DEVICE: cpu
       CARO_TORCH_THREADS: 1
       OMP_NUM_THREADS: 1
       MKL_NUM_THREADS: 1
+    deploy:
+      replicas: 6
+    # SIGTERM makes the worker release its leased job for immediate requeue.
+    stop_grace_period: 20s
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      # The worker touches this file on every poll and every ply.
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/tmp/caro-worker-alive') < 60 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s

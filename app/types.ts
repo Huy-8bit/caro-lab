@@ -13,20 +13,32 @@ export type TrainingConfig = {
   replay_capacity: number;
   training_updates: number;
   checkpoint_interval: number;
-  evaluation_frequency: number;
   promotion_games: number;
   promotion_threshold: number;
   evaluation_simulations: number;
   evaluation_opening_plies: number;
+  gate_max_repetition_rate: number;
+  gate_min_decisive_rate: number;
+  reject_reset_score: number;
   stop_after_promotion: boolean;
   autosave_interval: number;
   temperature_moves: number;
   temperature: number;
+  temperature_final: number;
+  selfplay_opening_plies: number;
+  endgame_curriculum_fraction: number;
   dirichlet_alpha: number;
   dirichlet_epsilon: number;
   c_puct: number;
-  repetition_penalty: number;
-  draw_penalty: number;
+  policy_target: "completed_q" | "visits";
+  completed_q_scale: number;
+  draw_contempt: number;
+  draw_sample_weight: number;
+  repetition_sample_weight: number;
+  adjudicated_sample_weight: number;
+  sample_length_reference: number;
+  replay_max_draw_fraction: number;
+  analytics_window: number;
   random_seed: number;
   device: string;
   channels: number;
@@ -41,8 +53,9 @@ export type MoveRecord = {
   san: string;
   fen_before: string;
   fen: string;
-  root_value: number;
+  root_value: number | null;
   visits: number;
+  opening?: boolean;
 };
 
 export type Game = {
@@ -80,8 +93,74 @@ export type Metric = {
   value_loss: number;
   total_loss: number;
   games_completed: number;
+  /** Games per minute of wall-clock iteration time, including the optimizer. */
   throughput: number;
+  /** Games per minute of the self-play phase only. */
+  selfplay_games_per_minute?: number | null;
+  selfplay_seconds?: number | null;
+  optimize_seconds?: number | null;
+  replay_draw_share?: number | null;
   created_at: string;
+};
+
+export type Rates = {
+  draw_rate: number | null;
+  repetition_rate: number | null;
+  checkmate_rate: number | null;
+  decisive_rate: number | null;
+  adjudicated_rate: number | null;
+};
+
+export type IterationQuality = Rates & {
+  iteration: number;
+  games: number;
+  draws: number;
+  repetitions: number;
+  checkmates: number;
+  adjudicated: number;
+  average_plies: number | null;
+  total_loss: number | null;
+  rolling: Rates & { games: number; total_loss: number | null; curriculum_games?: number; curriculum_checkmate_rate?: number | null };
+};
+
+export type QualityAlert = { level: string; code: string; message: string };
+
+export type Analytics = { window: number; iterations: IterationQuality[]; rolling: IterationQuality["rolling"]; alerts: QualityAlert[] };
+
+export type MatchSummary = {
+  score: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  games: number;
+  repetition_rate?: number;
+  decisive_rate?: number;
+  checkmate_rate?: number;
+  termination_counts?: Record<string, number>;
+  elo_diff?: number | null;
+  elo_low?: number | null;
+  elo_high?: number | null;
+};
+
+export type EvaluationProgress = {
+  id: string;
+  kind: "promotion" | "manual";
+  status: "running" | "promoted" | "rejected" | "complete" | "interrupted" | "error";
+  title: string;
+  candidate_label: string;
+  opponent_label: string;
+  games_total: number;
+  games_completed: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  score: number | null;
+  terminations: Record<string, number>;
+  current_games: { game_index: number; game: number; candidate_color: string; plies: number; fen: string | null; worker_id: string | null }[];
+  started_at: string;
+  elapsed_seconds: number;
+  eta_seconds: number | null;
+  decision: (Partial<MatchSummary> & { status: string; reasons?: string[]; action?: string }) | null;
 };
 
 export type Checkpoint = {
@@ -92,14 +171,11 @@ export type Checkpoint = {
   games: number;
   architecture: { channels: number; residual_blocks: number; policy_size: number };
   config: TrainingConfig;
-  evaluation: {
-    status?: string;
-    score?: number;
+  evaluation: Partial<MatchSummary> & {
+    status?: "bootstrap" | "promoted" | string;
+    opponent?: string | null;
+    note?: string;
     threshold?: number;
-    wins?: number;
-    draws?: number;
-    losses?: number;
-    games?: number;
   };
   file_size: number;
 };
@@ -113,7 +189,19 @@ export type Evaluation = {
   draws: number;
   losses: number;
   created_at: string;
-  details?: { termination?: string; opening_plies?: number }[];
+  kind?: "promotion" | "manual";
+  status?: string;
+  title?: string;
+  reasons?: string[];
+  action?: string;
+  score?: number;
+  repetition_rate?: number;
+  decisive_rate?: number;
+  elo_diff?: number | null;
+  elo_low?: number | null;
+  elo_high?: number | null;
+  termination_counts?: Record<string, number>;
+  details?: { termination?: string; opening_plies?: number; result?: string; model_color?: string }[];
 };
 
 export type TrainingStatus = {
@@ -122,20 +210,27 @@ export type TrainingStatus = {
   iteration: number;
   step: number;
   model_version: number;
+  candidate_version: number;
   candidate_progress: number;
   candidate_target: number;
-  last_promotion: {
-    status: "promoted" | "rejected";
+  last_promotion: (Partial<MatchSummary> & {
+    status: "promoted" | "rejected" | "bootstrap";
     version: number;
-    score: number;
-    threshold?: number;
-    wins?: number;
-    draws?: number;
-    losses?: number;
-  } | null;
+    candidate_version?: number;
+    champion_version?: number;
+    reasons?: string[];
+    action?: string;
+  }) | null;
+  evaluation: EvaluationProgress | null;
+  jobs?: { queued: number; leased: number; complete: number };
+  quality?: { rolling: Analytics["rolling"]; alerts: QualityAlert[]; window: number };
+  replay?: { size: number; counts: Record<string, number>; sampling_share: Record<string, number>; max_draw_fraction: number };
+  selfplay_games_per_minute?: number | null;
+  selfplay_seconds?: number | null;
+  optimize_seconds?: number | null;
   games_completed: number;
   worker_count: number;
-  workers: { id: string; status: string; games_completed: number; revision: number | null; last_seen: string }[];
+  workers: { id: string; status: string; games_completed: number; revision: number | null; job_id?: string | null; last_seen: string }[];
   active_games: ActiveGame[];
   runtime_seconds: number;
   games_per_minute: number;

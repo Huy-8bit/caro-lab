@@ -3,7 +3,7 @@ games_per_iteration: 10
 parallel_workers: 1
 self_play_mode: distributed
 worker_sync_interval: 5
-worker_job_timeout: 300
+worker_job_timeout: 60
 mcts_simulations: 32
 max_game_moves: 160
 batch_size: 64
@@ -12,7 +12,6 @@ weight_decay: 0.0001
 replay_capacity: 12000
 training_updates: 32
 checkpoint_interval: 50
-evaluation_frequency: 50
 promotion_games: 40
 promotion_threshold: 0.55
 evaluation_simulations: 48
@@ -21,11 +20,36 @@ stop_after_promotion: true
 autosave_interval: 2
 temperature_moves: 40
 temperature: 1.0
+temperature_final: 0.0
+selfplay_opening_plies: 4
+# Experimental: share of self-play games started from random reduced-material
+# positions (KQ v K, KR v K, pawn endings, ...). Off: in a 30-iteration smoke it
+# did not improve value accuracy or mating ability (see README).
+endgame_curriculum_fraction: 0.0
+endgame_temperature_moves: 0
 dirichlet_alpha: 0.3
 dirichlet_epsilon: 0.25
 c_puct: 1.5
-repetition_penalty: 0.01
-draw_penalty: 0.05
+# "visits" = classic AlphaZero visit-count targets. "completed_q" (Gumbel
+# AlphaZero improved policy) is experimental: it increased repetition in a
+# 30-iteration smoke run, so it is not the default.
+policy_target: visits
+completed_q_scale: 0.1
+# Search-only draw aversion for the player choosing a move (value targets
+# for draws stay 0, so the game remains zero-sum).
+draw_contempt: 0.15
+# Replay sampling: decisive games weigh 1.0; draws/repetitions/adjudicated
+# games are down-weighted and non-decisive samples are capped in each batch.
+draw_sample_weight: 0.6
+repetition_sample_weight: 0.25
+adjudicated_sample_weight: 0.3
+sample_length_reference: 80
+replay_max_draw_fraction: 0.5
+# Promotion quality gate (in addition to promotion_threshold).
+gate_max_repetition_rate: 0.5
+gate_min_decisive_rate: 0.1
+reject_reset_score: 0.35
+analytics_window: 5
 random_seed: 7
 device: auto
 channels: 24

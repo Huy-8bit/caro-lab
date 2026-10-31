@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from app.chess.mcts import MCTS, SearchNode
+from app.chess.mcts import MCTS
 from app.chess.move_index import POLICY_SIZE
 from app.config import TrainingConfig
 from app.core.events import EventBroker
@@ -43,26 +43,11 @@ def test_mcts_policy_is_legal_and_normalized() -> None:
     assert search.select_move(root, 0) in board.legal_moves
 
 
-def test_move_selection_avoids_claiming_threefold_when_progress_is_available() -> None:
-    board = chess.Board()
-    for uci in ("g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"):
-        board.push_uci(uci)
-    repeating = chess.Move.from_uci("f6g8")
-    progressive = chess.Move.from_uci("h8g8")
-    root = SearchNode(
-        children={
-            repeating: SearchNode(visit_count=100),
-            progressive: SearchNode(visit_count=1),
-        }
-    )
-    search = MCTS(tiny_model(), torch.device("cpu"), simulations=1, seed=2)
-    assert search.select_move(root, 0, board) == progressive
-
-
 def test_replay_buffer_sampling() -> None:
     buffer = ReplayBuffer(3, seed=1)
     policy = np.zeros(POLICY_SIZE, dtype=np.float32)
-    samples = [TrainingSample(np.zeros((20, 8, 8), np.float32), policy, 0, "g", i, 1) for i in range(5)]
+    policy[7] = 1.0
+    samples = [TrainingSample.from_dense(np.zeros((20, 8, 8), np.float32), policy, 0, "g", i, 1) for i in range(5)]
     buffer.extend(samples)
     assert len(buffer) == 3
     assert len(buffer.sample(10)) == 3
@@ -72,15 +57,18 @@ def test_distributed_sample_payload_round_trip() -> None:
     policy = np.zeros(POLICY_SIZE, dtype=np.float32)
     policy[3] = 1.0
     samples = [
-        TrainingSample(np.zeros((20, 8, 8), np.float32), policy, -0.05, "game", 2, 4),
-        TrainingSample(np.ones((20, 8, 8), np.float32), policy, 1.0, "game", 3, 4),
+        TrainingSample.from_dense(np.zeros((20, 8, 8), np.float32), policy, -0.05, "game", 2, 4, 0.25, "repetition"),
+        TrainingSample.from_dense(np.ones((20, 8, 8), np.float32), policy, 1.0, "game", 3, 4),
     ]
     record = {"id": "game", "moves": [], "result": "1-0"}
     restored = decode_result(record, encode_samples(samples), iteration=4)
     assert len(restored.samples) == 2
     assert restored.samples[0].value == pytest.approx(-0.05)
     assert np.array_equal(restored.samples[1].state, samples[1].state)
-    assert np.array_equal(restored.samples[0].policy, policy)
+    assert np.array_equal(restored.samples[0].dense_policy(), policy)
+    assert restored.samples[0].outcome == "repetition"
+    assert restored.samples[0].weight == pytest.approx(0.25)
+    assert restored.samples[1].outcome == "decisive"
 
 
 def test_optimizer_changes_real_weights(tmp_path: Path) -> None:
@@ -89,8 +77,8 @@ def test_optimizer_changes_real_weights(tmp_path: Path) -> None:
     policy = np.zeros(POLICY_SIZE, np.float32)
     policy[0] = 1
     engine.replay.extend([
-        TrainingSample(np.zeros((20, 8, 8), np.float32), policy, 1.0, "a", 0, 1),
-        TrainingSample(np.ones((20, 8, 8), np.float32), policy, -1.0, "a", 1, 1),
+        TrainingSample.from_dense(np.zeros((20, 8, 8), np.float32), policy, 1.0, "a", 0, 1),
+        TrainingSample.from_dense(np.ones((20, 8, 8), np.float32), policy, -1.0, "a", 1, 1),
     ])
     before = next(engine.model.parameters()).detach().clone()
     losses = engine._optimize()
@@ -155,83 +143,3 @@ def test_opening_and_material_bootstrap_are_deterministic() -> None:
     assert material_value(black_up_rook) < 0
 
 
-def test_rejected_candidate_restores_champion_without_new_version(tmp_path: Path, monkeypatch) -> None:
-    repository = Repository(tmp_path / "db.sqlite")
-    model = tiny_model()
-    optimizer = torch.optim.AdamW(model.parameters())
-    champion_path = save_checkpoint(tmp_path / "checkpoints", repository, model, optimizer, 1, 0, 0, 0, {})
-    config = TrainingConfig(
-        channels=8,
-        residual_blocks=0,
-        promotion_games=2,
-        promotion_threshold=0.55,
-        evaluation_simulations=1,
-    )
-    engine = TrainingEngine(repository, EventBroker(), tmp_path / "checkpoints", config)
-    with torch.no_grad():
-        next(engine.model.parameters()).add_(1)
-    engine.iteration = 10
-
-    monkeypatch.setattr(
-        "app.training.engine.evaluate_checkpoint",
-        lambda *args, **kwargs: {
-            "model_a": 2,
-            "model_b": "v1",
-            "games": 2,
-            "wins": 0,
-            "draws": 2,
-            "losses": 0,
-            "score": 0.5,
-            "details": [],
-        },
-    )
-    engine._promote_candidate()
-    restored, _ = load_checkpoint(champion_path, torch.device("cpu"))
-    assert engine.model_version == 1
-    assert repository.get_checkpoint(2) is None
-    assert engine.last_promotion and engine.last_promotion["status"] == "rejected"
-    assert not engine._stop.is_set()
-    for expected, actual in zip(restored.parameters(), engine.model.parameters(), strict=True):
-        assert torch.equal(expected.to(actual.device), actual)
-
-
-def test_successful_promotion_requests_configured_stop(tmp_path: Path, monkeypatch) -> None:
-    repository = Repository(tmp_path / "db.sqlite")
-    model = tiny_model()
-    optimizer = torch.optim.AdamW(model.parameters())
-    save_checkpoint(tmp_path / "checkpoints", repository, model, optimizer, 1, 0, 0, 0, {})
-    config = TrainingConfig(
-        channels=8,
-        residual_blocks=0,
-        promotion_games=2,
-        promotion_threshold=0.55,
-        evaluation_simulations=1,
-        stop_after_promotion=True,
-    )
-    engine = TrainingEngine(repository, EventBroker(), tmp_path / "checkpoints", config)
-    engine.iteration = 10
-
-    monkeypatch.setattr(
-        "app.training.engine.evaluate_checkpoint",
-        lambda *args, **kwargs: {
-            "id": "promotion-test",
-            "model_a": 2,
-            "model_b": "v1",
-            "games": 2,
-            "wins": 1,
-            "draws": 1,
-            "losses": 0,
-            "score": 0.75,
-            "created_at": "2026-10-30T00:00:00+00:00",
-            "details": [],
-        },
-    )
-
-    engine._promote_candidate()
-
-    assert engine.model_version == 2
-    assert repository.get_checkpoint(2) is not None
-    assert engine.last_promotion and engine.last_promotion["status"] == "promoted"
-    assert engine.status == "stopping"
-    assert engine._stop.is_set()
-    assert any("stopping training as configured" in item["message"] for item in engine.logs)

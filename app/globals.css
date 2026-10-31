@@ -100,3 +100,84 @@ button { color:inherit; }
 @media(max-width:1280px){.arenaLayout{grid-template-columns:210px minmax(430px,1fr)}.replayBody{grid-template-columns:minmax(330px,520px) minmax(240px,1fr)}}
 @media(max-width:980px){.arenaLayout{grid-template-columns:1fr}.arenaStage{width:min(100% - 30px,560px)}}
 @media(max-width:700px){.arenaStage{width:min(100% - 20px,520px)}.replayBody{grid-template-columns:1fr}.promotionPanel{grid-column:auto}.piece{font-size:9cqi}}
+
+/* Board geometry: the board is always a square. It never stretches with its
+   grid/flex row; its width is the only free dimension and height follows. */
+.chessboard { height:auto !important; min-height:0; max-width:100%; align-self:start; justify-self:center; }
+.boardSquare { aspect-ratio:1/1; }
+.arenaStage>.chessboard,.replayBody .chessboard { width:100%; }
+.miniBoard { display:block; width:52px; aspect-ratio:1/1; }
+.miniBoard>.chessboard { width:52px; }
+
+/* SVG line charts (validated dark categorical slots 1-4). */
+.lineChart { position:relative; width:100%; }
+.lineChart svg { display:block; overflow:visible; }
+.gridLine { stroke:#222b24; stroke-width:1; }
+.axisText { fill:#6f7b73; font:9px var(--font-geist-mono),monospace; }
+.seriesLine { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+.endDot { stroke:#111713; stroke-width:2; }
+.directLabel { fill:#aeb7b0; font:9px var(--font-geist-sans),Arial,sans-serif; }
+.crosshair { stroke:#4a564d; stroke-width:1; }
+.chartTooltip { position:absolute; z-index:5; min-width:170px; padding:9px 11px; display:flex; flex-direction:column; gap:5px; pointer-events:none; border:1px solid var(--line2); border-radius:7px; background:#0d120ef2; box-shadow:0 10px 30px #0009; font-size:10px; color:#c9d0ca; }
+.chartTooltip b { color:var(--ink); font:9px var(--font-geist-mono),monospace; letter-spacing:.06em; }
+.chartTooltip span { display:flex; align-items:center; gap:7px; }
+.chartTooltip i,.chartKey i,.smallMultiples figcaption i { width:10px; height:3px; border-radius:2px; flex:none; }
+.chartTooltip em { margin-left:auto; font-style:normal; font-family:var(--font-geist-mono),monospace; color:var(--ink); }
+.chartKey { display:flex; flex-wrap:wrap; gap:8px 18px; padding:14px 20px 4px; }
+.chartKey span { display:flex; align-items:center; gap:7px; color:#aeb7b0; font-size:10px; }
+.chartKey small { color:#69756d; font-size:9px; }
+.smallMultiples { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; padding:8px 20px 4px; }
+.smallMultiples figure { margin:0; min-width:0; }
+.smallMultiples figcaption { display:flex; align-items:center; gap:7px; margin:6px 0 4px; color:#c9d0ca; font-size:10px; }
+.chartPanel .lineChart { padding:0 20px 0 0; }
+.chartPanel>div>.lineChart { padding:6px 20px 0 8px; }
+.chartFootnote { margin:8px 20px 0; color:#69756d; font-size:9px; line-height:1.5; }
+.signalNote { display:flex; gap:11px; align-items:flex-start; padding:12px 15px; border:1px solid #2d3a4d; border-radius:9px; background:#111823; color:#9fb3cf; }
+.signalNote p { margin:0; font-size:10px; line-height:1.55; } .signalNote b { color:#d3def0; }
+.analyticsGrid>.wide { grid-column:1/-1; }
+.dataTableToggle { margin:10px 20px 0; color:#8b978f; font-size:10px; }
+.dataTableToggle summary { cursor:pointer; }
+.miniTable { margin-top:8px; max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:7px; }
+.miniTable>div { display:grid; grid-template-columns:repeat(8,minmax(60px,1fr)); padding:6px 10px; border-bottom:1px solid #1d251f; font:9px var(--font-geist-mono),monospace; color:#aeb7b0; }
+.miniTable>.miniHead { position:sticky; top:0; background:#121814; color:#6f7b73; letter-spacing:.08em; text-transform:uppercase; }
+
+/* Quality alerts */
+.qualityAlerts { display:flex; flex-direction:column; gap:8px; margin-bottom:18px; }
+.qualityAlerts>div { display:flex; gap:10px; align-items:flex-start; padding:11px 14px; border:1px solid #5c4a24; border-radius:8px; background:#1f1a0f; color:#f0c97a; }
+.qualityAlerts span { display:flex; flex-direction:column; gap:3px; font-size:10px; line-height:1.5; color:#d9c08c; }
+.qualityAlerts b { color:#fab219; font-size:10px; }
+.analyticsGrid .qualityAlerts { margin-bottom:0; }
+
+/* Evaluation progress */
+.evalProgress { margin-bottom:18px; }
+.evalProgress .vs { color:var(--faint); font-weight:400; margin:0 4px; }
+.evalBody { padding:16px 20px 18px; display:flex; flex-direction:column; gap:12px; }
+.evalCounts { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px 22px; color:#aeb7b0; font-size:11px; }
+.evalCounts strong { color:var(--ink); font:24px var(--font-geist-mono),monospace; }
+.evalCounts strong small { color:#6f7b73; font-size:11px; }
+.evalCounts .win,.wdl .win { color:var(--lime); } .evalCounts .loss,.wdl .loss { color:var(--red); }
+.evalBar { display:flex; gap:2px; height:12px; border-radius:6px; background:#222b24; overflow:hidden; }
+.evalBar i { display:block; height:100%; transition:width .3s ease; }
+.evalBar i.win,.evalLegend i.win { background:#0ca30c; } .evalBar i.draw,.evalLegend i.draw { background:#8b968e; } .evalBar i.loss,.evalLegend i.loss { background:#e66767; }
+.evalLegend { display:flex; flex-wrap:wrap; gap:6px 16px; color:#7e8a82; font-size:9px; }
+.evalLegend span { display:flex; align-items:center; gap:6px; }
+.evalLegend i { width:9px; height:9px; border-radius:2px; } .evalLegend i.rest { background:#222b24; border:1px solid #344037; }
+.evalTimes { display:grid; grid-template-columns:120px 120px 1fr; gap:10px; margin:0; }
+.evalTimes div { min-width:0; } .evalTimes dt { color:#6f7b73; font:8px var(--font-geist-mono),monospace; letter-spacing:.12em; text-transform:uppercase; }
+.evalTimes dd { margin:4px 0 0; color:#c9d0ca; font:11px var(--font-geist-mono),monospace; overflow-wrap:anywhere; }
+.evalTerminations { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; color:#aeb7b0; font-size:10px; }
+.evalTerminations b { color:var(--ink); font-family:var(--font-geist-mono),monospace; }
+.evalReasons { margin:0; padding:10px 12px 10px 28px; border:1px solid #553431; border-radius:7px; background:#1d1312; color:#f19a93; font-size:10px; line-height:1.6; }
+.evalReasons .muted { color:#a88a87; }
+.evalProgress.compact .evalBody { gap:10px; }
+.statusTag { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid var(--line2); border-radius:999px; color:#aeb7b0; font:8px var(--font-geist-mono),monospace; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
+.statusTag.promoted,.statusTag.complete { color:#7fdc7f; border-color:#2b4a2b; }
+.statusTag.rejected,.statusTag.error { color:#f19a93; border-color:#553431; }
+.statusTag.running { color:var(--lime); border-color:#3c4d39; }
+.statusTag.interrupted { color:#f0c97a; border-color:#5c4a24; }
+.evaluationRow small.reason,.battleResult small.reason { display:block; margin-top:4px; color:#e3958e; }
+.wdl { display:flex; align-items:center; gap:8px; }
+.bootstrapLabel { color:#f0c97a; }
+.rollingSplit { margin-top:-10px; }
+.battleNames { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+@media(max-width:980px){ .smallMultiples{grid-template-columns:1fr} .evalTimes{grid-template-columns:1fr 1fr} .evalTimes div:last-child{grid-column:1/-1} }

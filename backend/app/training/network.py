@@ -69,6 +69,20 @@ class PolicyValueNetwork(nn.Module):
         features = self.tower(self.stem(inputs))
         return self.policy_head(features), self.value_head(features).squeeze(-1)
 
+    def evaluate_moves(self, inputs: torch.Tensor, move_indices: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Policy logits for ``move_indices`` only, plus the value.
+
+        Same result as ``forward(inputs)[0][:, move_indices]``, but the final
+        policy layer multiplies only the rows of the legal moves instead of all
+        ``policy_size`` (20480) outputs. That layer dominates inference cost for
+        the small networks used here, so search runs several times faster.
+        """
+        features = self.tower(self.stem(inputs))
+        hidden = self.policy_head[:-1](features)
+        output = self.policy_head[-1]
+        logits = torch.addmm(output.bias[move_indices], hidden, output.weight[move_indices].T)
+        return logits, self.value_head(features).squeeze(-1)
+
 
 def choose_device(requested: str = "auto") -> torch.device:
     if requested != "auto":

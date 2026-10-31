@@ -14,6 +14,10 @@ async def stream_channel(websocket: WebSocket, channel: str) -> None:
     queue = broker.subscribe(channel)
     try:
         await websocket.send_json({"type": "connected", "channel": channel})
+        if channel == "evaluation":
+            # Late subscribers get the durable state first, not only future events.
+            progress = websocket.app.state.engine.evaluation_state
+            await websocket.send_json({"type": "evaluation_progress", "progress": progress})
         while True:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=20)
