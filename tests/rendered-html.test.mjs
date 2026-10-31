@@ -39,5 +39,10 @@ test("dashboard source contains the required authoritative product surfaces", as
   assert.match(page, /ChessBoard/);
   assert.match(layout, /Caro Lab — Self-Learning Chess AI/);
   assert.match(css, /--lime:#b8f25f/);
+  assert.match(css, /aspect-ratio:1\/1/);
+  assert.match(css, /grid-template:repeat\(8,minmax\(0,1fr\)\)/);
+  assert.match(page, /MODEL PROMOTION/);
+  assert.match(page, /candidate_progress/);
+  assert.match(page, /stop_after_promotion/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|recharts/);
 });

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import copy
+import hmac
+import os
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from app.api.schemas import EvaluationRequest, StartTrainingRequest
+from app.api.schemas import (
+    EvaluationRequest,
+    StartTrainingRequest,
+    WorkerClaimRequest,
+    WorkerEventRequest,
+    WorkerResultRequest,
+)
 from app.config import TrainingConfig
 from app.evaluation.arena import evaluate_checkpoint
 
@@ -17,6 +25,13 @@ router = APIRouter(prefix="/api")
 
 def services(request: Request):
     return request.app.state.engine, request.app.state.repository, request.app.state.broker
+
+
+def authorize_worker(request: Request) -> None:
+    expected = os.getenv("CARO_WORKER_TOKEN", "local-scale-token")
+    supplied = request.headers.get("X-Caro-Worker-Token", "")
+    if not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Invalid worker token")
 
 
 @router.get("/status")
@@ -57,6 +72,57 @@ def resume_training(request: Request):
 def stop_training(request: Request):
     engine, _, _ = services(request)
     return engine.stop()
+
+
+@router.post("/workers/claim")
+def worker_claim(payload: WorkerClaimRequest, request: Request):
+    authorize_worker(request)
+    engine, _, _ = services(request)
+    job = engine.claim_worker_job(payload.worker_id)
+    return job if job is not None else Response(status_code=204)
+
+
+@router.get("/workers/model")
+def worker_model(revision: int, request: Request):
+    authorize_worker(request)
+    engine, _, _ = services(request)
+    try:
+        path = engine.worker_model_path(revision)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return FileResponse(path)
+
+
+@router.post("/workers/results")
+def worker_result(payload: WorkerResultRequest, request: Request):
+    authorize_worker(request)
+    engine, _, _ = services(request)
+    try:
+        accepted = engine.submit_worker_result(
+            payload.worker_id,
+            payload.job_id,
+            payload.revision,
+            payload.record,
+            payload.samples_blob,
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not accepted:
+        raise HTTPException(status_code=409, detail="Job is stale or already completed")
+    return {"accepted": True}
+
+
+@router.post("/workers/events")
+def worker_event(payload: WorkerEventRequest, request: Request):
+    authorize_worker(request)
+    engine, _, _ = services(request)
+    accepted = engine.ingest_worker_event(
+        payload.worker_id,
+        payload.job_id,
+        payload.revision,
+        payload.event,
+    )
+    return {"accepted": accepted}
 
 
 @router.get("/games")

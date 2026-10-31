@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 import chess
 import chess.pgn
+import math
 
 from app.chess.encoding import encode_board
 from app.chess.mcts import MCTS
@@ -20,6 +21,26 @@ class SelfPlayResult:
     samples: list[TrainingSample]
 
 
+PIECE_VALUES = {
+    chess.PAWN: 1.0,
+    chess.KNIGHT: 3.0,
+    chess.BISHOP: 3.25,
+    chess.ROOK: 5.0,
+    chess.QUEEN: 9.0,
+}
+
+
+def material_value(board: chess.Board) -> float:
+    """A bounded fallback target for games stopped by the safety move limit."""
+    score = 0.0
+    for piece_type, value in PIECE_VALUES.items():
+        score += value * (
+            len(board.pieces(piece_type, chess.WHITE))
+            - len(board.pieces(piece_type, chess.BLACK))
+        )
+    return math.tanh(score / 8.0)
+
+
 def play_self_play_game(
     search: MCTS,
     iteration: int,
@@ -27,6 +48,7 @@ def play_self_play_game(
     max_moves: int,
     temperature_moves: int,
     temperature: float,
+    draw_penalty: float = 0.05,
     event_callback: Callable[[dict[str, Any]], None] | None = None,
     pause_callback: Callable[[], bool] | None = None,
 ) -> SelfPlayResult:
@@ -55,7 +77,7 @@ def play_self_play_game(
             break
         policy, root_value, root = search.search(board, add_noise=True)
         positions.append((encode_board(board), policy, board.turn, ply))
-        move = search.select_move(root, temperature if ply < temperature_moves * 2 else 0.0)
+        move = search.select_move(root, temperature if ply < temperature_moves * 2 else 0.0, board)
         san = board.san(move)
         before_fen = board.fen()
         board.push(move)
@@ -84,7 +106,7 @@ def play_self_play_game(
     outcome = board.outcome(claim_draw=True)
     if outcome is None:
         result, winner, termination = "1/2-1/2", None, "max move safety limit"
-        result_value = 0.0
+        result_value = material_value(board)
     else:
         result = outcome.result()
         winner = "white" if outcome.winner == chess.WHITE else "black" if outcome.winner == chess.BLACK else None
@@ -96,7 +118,11 @@ def play_self_play_game(
         TrainingSample(
             state=state,
             policy=policy,
-            value=result_value if turn == chess.WHITE else -result_value,
+            value=(
+                -draw_penalty
+                if outcome is not None and outcome.winner is None
+                else result_value if turn == chess.WHITE else -result_value
+            ),
             game_id=game_id,
             ply=ply,
             iteration=iteration,
@@ -118,7 +144,16 @@ def play_self_play_game(
         "final_fen": board.fen(),
         "termination": termination,
         "moves": move_records,
-        "metadata": {"mcts_simulations": search.simulations, "training_samples": len(samples)},
+        "metadata": {
+            "mcts_simulations": search.simulations,
+            "training_samples": len(samples),
+            "value_target": round(result_value, 5),
+            "value_target_source": (
+                "material_bootstrap"
+                if outcome is None
+                else "draw_penalty" if outcome.winner is None else "game_outcome"
+            ),
+        },
     }
     if event_callback:
         event_callback({"type": "game_complete", "game_id": game_id, "game": record})

@@ -1,0 +1,22 @@
+services:
+  backend:
+    environment:
+      CARO_CONFIG: /app/configs/scale.yaml
+      CARO_WORKER_TOKEN: local-scale-token
+
+  selfplay-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.training.worker"]
+    environment:
+      CARO_COORDINATOR_URL: http://backend:8000
+      CARO_WORKER_TOKEN: local-scale-token
+      CARO_WORKER_DEVICE: cpu
+      CARO_TORCH_THREADS: 1
+      OMP_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

@@ -46,6 +46,7 @@ class MCTS:
         c_puct: float = 1.5,
         dirichlet_alpha: float = 0.3,
         dirichlet_epsilon: float = 0.25,
+        repetition_penalty: float = 0.08,
         seed: int = 0,
     ) -> None:
         self.model = model
@@ -54,7 +55,32 @@ class MCTS:
         self.c_puct = c_puct
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_epsilon = dirichlet_epsilon
+        self.repetition_penalty = repetition_penalty
         self.rng = np.random.default_rng(seed)
+
+    def _discourage_repetition(self, root: SearchNode, board: chess.Board) -> None:
+        """Reduce priors for moves that immediately repeat an earlier position.
+
+        Repetition stays legal and available, but the agent will prefer making
+        progress when another reasonable move exists.
+        """
+        if not board.move_stack or not root.children:
+            return
+        changed = False
+        for move, child in root.children.items():
+            next_board = board.copy(stack=True)
+            next_board.push(move)
+            if next_board.is_repetition(3):
+                child.prior *= self.repetition_penalty
+                changed = True
+            elif next_board.is_repetition(2):
+                child.prior *= math.sqrt(self.repetition_penalty)
+                changed = True
+        if changed:
+            total = sum(child.prior for child in root.children.values())
+            if total > 0:
+                for child in root.children.values():
+                    child.prior /= total
 
     @torch.inference_mode()
     def evaluate(self, board: chess.Board) -> tuple[dict[chess.Move, float], float]:
@@ -90,6 +116,7 @@ class MCTS:
         if value is not None:
             return np.zeros(POLICY_SIZE, dtype=np.float32), value, root
         root_value = self._expand(root, board)
+        self._discourage_repetition(root, board)
         if add_noise and root.children:
             moves = list(root.children)
             noise = self.rng.dirichlet([self.dirichlet_alpha] * len(moves))
@@ -120,8 +147,22 @@ class MCTS:
                 policy[move_to_index(move)] = child.visit_count / total
         return policy, root_value, root
 
-    def select_move(self, root: SearchNode, temperature: float) -> chess.Move:
+    def select_move(
+        self,
+        root: SearchNode,
+        temperature: float,
+        board: chess.Board | None = None,
+    ) -> chess.Move:
         moves = list(root.children)
+        if board is not None and len(moves) > 1:
+            progressive = []
+            for move in moves:
+                next_board = board.copy(stack=True)
+                next_board.push(move)
+                if not next_board.is_repetition(3):
+                    progressive.append(move)
+            if progressive:
+                moves = progressive
         visits = np.array([root.children[move].visit_count for move in moves], dtype=np.float64)
         if temperature <= 1e-6:
             return moves[int(np.argmax(visits))]
