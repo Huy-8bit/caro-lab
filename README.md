@@ -64,7 +64,7 @@ Each search expands legal moves using policy priors, selects with PUCT, evaluate
 
 ### Training loop
 
-Each iteration runs the configured number of self-play games across bounded worker threads, appends samples to a capacity-limited replay buffer, performs real optimizer updates, records metrics, and writes an atomic versioned checkpoint on schedule. Pause takes effect at move and optimizer boundaries. Stop finishes already-started games, saves those complete records, and exits cleanly without writing a partial checkpoint.
+Each iteration runs the configured number of self-play games across bounded worker threads, appends samples to a capacity-limited replay buffer, performs real optimizer updates, and records metrics. Training progress is atomically overwritten in one `training-latest.pt` candidate file. After a configurable multi-iteration cycle, the candidate plays a color-balanced, opening-diverse promotion match against the current champion. Only a candidate that reaches the required score becomes a numbered checkpoint; a rejected candidate is rolled back to the champion. By default, training stops cleanly after a new numbered model is saved; this can be disabled in Configuration for continuous training. Pause takes effect at move and optimizer boundaries, and Stop preserves the rolling candidate state.
 
 ## Quick start with Docker
 
@@ -77,6 +77,14 @@ docker compose up --build
 Open `http://localhost:3000`. The API and interactive documentation are at `http://localhost:8000` and `http://localhost:8000/docs`.
 
 The default Compose profile is intentionally small. Data is mounted into `./data` and checkpoints into `./checkpoints`.
+
+For horizontally scaled self-play on one Docker host, run one authoritative trainer and four stateless actor containers:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.scale.yml up --build --scale selfplay-worker=4
+```
+
+The trainer is the only process that owns the optimizer, replay buffer, SQLite database, and checkpoints. Workers lease versioned jobs over authenticated internal HTTP, cache candidate snapshots, stream sampled live moves, and return compressed trajectories. Increasing `--scale selfplay-worker=N` changes self-play capacity without creating competing model writers.
 
 ## Local development
 
@@ -107,11 +115,11 @@ The dashboard defaults to `http://localhost:8000`. Override it with `VITE_API_UR
 
 ## Training profiles
 
-- `configs/quick.yaml`: four MCTS simulations, one game per iteration, compact network; intended for UI development and pipeline checks.
-- `configs/normal.yaml`: larger network, two workers, 96 simulations, larger replay and batch sizes; intended for long local runs.
+- `configs/quick.yaml`: compact network with 32 MCTS simulations, four games per iteration, and a 10-iteration promotion cycle; suitable for meaningful CPU-scale experiments.
+- `configs/normal.yaml`: larger network, two workers, 96 simulations, larger replay and batch sizes, and longer promotion matches; intended for long local runs.
 - Custom: copy either file and pass it via `CARO_CONFIG`, or edit all important settings on the Configuration page.
 
-Important parameters include games and workers per iteration, MCTS simulations, batch size, learning rate, replay capacity, optimizer updates, checkpoint and evaluation cadence, temperature, Dirichlet noise, PUCT, architecture size, retention, event sampling, device, and seed.
+Important parameters include games and workers per iteration, MCTS simulations, batch size, learning rate, replay capacity, optimizer updates, candidate-cycle length, promotion games and score threshold, evaluation search depth, opening diversity, temperature, Dirichlet noise, PUCT, architecture size, retention, event sampling, device, and seed.
 
 ### CPU only
 
@@ -127,7 +135,7 @@ Set `device: cpu` in the YAML file or choose `cpu` in a custom API configuration
 - **Live Arena** — subscribe to an active worker, pause only visual playback, flip the board, and inspect move-level visits and values.
 - **Game History** — persistent records with timeline scrubbing, first/previous/next/last controls, autoplay speed, FEN inspection, board orientation, and PGN download.
 - **Training Analytics** — actual optimization losses and throughput plus color-balanced evaluation results.
-- **Checkpoints** — inspect, download, or resume a saved model.
+- **Checkpoints** — inspect, download, or resume promoted champion models; rolling candidates do not clutter this registry.
 - **Model Battle** — play a candidate against random, a capture-first heuristic, or another checkpoint with alternating colors.
 - **Configuration** — launch a new run with custom self-play, MCTS, replay, optimizer, and network settings.
 - **System Logs** — bounded structured worker and checkpoint events.
@@ -179,7 +187,7 @@ SQLite uses WAL mode and indexed game/metric queries. Model tensors stay outside
 - The replay buffer is bounded but in memory; durable games are retained, while samples are regenerated after a process restart.
 - Multi-worker inference shares one model in a single service process. This is appropriate for a workstation, not a distributed GPU cluster.
 - Evaluation is relative and color-balanced but intentionally has no absolute Elo claim.
-- The quick profile often reaches its safety move limit while untrained. Longer runs, deeper MCTS, and the normal profile are needed before meaningful chess behavior emerges.
+- Training at workstation scale remains compute-intensive. Candidates use material bootstrapping only when a self-play game reaches its safety limit, while true checkmates and rule-based draws remain authoritative.
 - Authentication and multi-user experiment ownership are outside the local-first scope.
 
 ## License
